@@ -29,50 +29,6 @@ module Main (C:CONSOLE) (K:KV_RO) (S:STACKV4) = struct
     let open Dns_server in
     let process = process_of_zonebuf zonebuf in
     let processor = (processor_of_process process :> (module PROCESSOR)) in
-    let udp = S.udpv4 s in
-    let _ =
-      let server = "10.0.1.1" in
-      let port = 53 in
-      let listening_port = 5359 in
-      OS.Time.sleep 3.0 >>= fun () ->
-      C.log_s c "Starting client resolver" >>= fun () ->
-      let connect_to_resolver server port : Dns_resolver.commfn =
-        let dest_ip = Ipaddr.V4.of_string_exn server in
-        let txfn buf =
-          let buf = Cstruct.of_bigarray buf in
-          Cstruct.hexdump buf;
-          U.write ~source_port:listening_port ~dest_ip ~dest_port:port udp buf in
-        let st, push_st = Lwt_stream.create () in
-        S.listen_udpv4 s listening_port (
-          fun ~src ~dst ~src_port buf ->
-            C.log_s c (sprintf "resolver response, length %d" (Cstruct.len buf))
-            >>= fun () ->
-            let ba = Cstruct.to_bigarray buf in
-            push_st (Some ba);
-            return ()
-        );
-        let rec rxfn f =
-          Lwt_stream.get st
-          >>= function
-          | None -> fail (Failure "resolver flow closed")
-          | Some buf -> begin
-              match f buf with
-              | None -> rxfn f
-              | Some r -> return r
-            end
-        in
-        let timerfn () = OS.Time.sleep 5.0 in
-        let cleanfn () = return () in
-        { Dns_resolver.txfn; rxfn; timerfn; cleanfn }
-      in
-      let commfn = connect_to_resolver server port in
-      let hostname = "dark.recoil.org" in
-      let alloc () = (Io_page.get 1 :> Dns.Buf.t) in
-      Dns_resolver.gethostbyname ~alloc commfn hostname
-      >>= fun ips ->
-      Lwt_list.iter_s (fun ip ->
-       C.log_s c (sprintf "%s -> %s" hostname (Ipaddr.to_string ip))) ips
-    in
     S.listen_udpv4 s listening_port (
       fun ~src ~dst ~src_port buf ->
         C.log_s c "got udp"
